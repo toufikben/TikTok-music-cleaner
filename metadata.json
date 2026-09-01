@@ -1,0 +1,6 @@
+{
+  "name": "TikTok Audio Cleaner",
+  "description": "App to block background music on TikTok videos while preserving voices and speech.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

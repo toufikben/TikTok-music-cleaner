@@ -119,6 +119,8 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  // Maintained FFmpegKit fork; the original distribution is retired.
+  implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

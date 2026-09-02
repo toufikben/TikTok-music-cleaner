@@ -1,6 +1,7 @@
 package com.example.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -10,6 +11,7 @@ import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.ProcessorScreen
 import com.example.viewmodel.AudioCleanerViewModel
+import com.example.viewmodel.AudioCleanerViewModelFactory
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")
@@ -23,7 +25,10 @@ sealed class Screen(val route: String) {
 @Composable
 fun NavGraph(startDestination: String = Screen.Home.route) {
     val navController = rememberNavController()
-    val viewModel: AudioCleanerViewModel = viewModel()
+    val context = LocalContext.current
+    val viewModel: AudioCleanerViewModel = viewModel(
+        factory = AudioCleanerViewModelFactory(context)
+    )
 
     NavHost(
         navController = navController,

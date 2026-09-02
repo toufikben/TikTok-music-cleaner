@@ -19,6 +19,7 @@ interface AudioProcessor {
 data class ProcessingResult(
     val input: Uri,
     val output: Uri? = null,
+    val completed: Boolean = false,
     val usedModel: Boolean = false,
     val message: String? = null,
 )
@@ -40,6 +41,7 @@ class ModelUnavailableAudioProcessor : AudioProcessor {
         onProgress(0)
         return ProcessingResult(
             input = input,
+            completed = false,
             usedModel = false,
             message = "لم يتم تضمين نموذج فصل الصوت بعد. أضف music_separator.tflite إلى assets لتفعيل المعالجة المحلية.",
         )
@@ -57,6 +59,6 @@ class PreviewAudioProcessor : AudioProcessor {
     ): ProcessingResult {
         require(musicBlockLevel in 0f..1f) { "Music block level must be between 0 and 1" }
         onProgress(100)
-        return ProcessingResult(input = input, usedModel = true)
+        return ProcessingResult(input = input, completed = true, usedModel = true)
     }
 }

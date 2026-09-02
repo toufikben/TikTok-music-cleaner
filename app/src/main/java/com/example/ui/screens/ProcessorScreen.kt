@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import android.content.ContentValues
+import android.content.Context
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +42,7 @@ fun ProcessorScreen(
     val vocalBoost by viewModel.vocalBoostEnabled.collectAsState()
     val noiseReduction by viewModel.noiseReductionEnabled.collectAsState()
     val processingState by viewModel.processingState.collectAsState()
+    val context = LocalContext.current
 
     var isPreviewOriginal by remember { mutableStateOf(false) }
 
@@ -223,7 +232,7 @@ fun ProcessorScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = "جاري معالجة الصوت وحجب الموسيقى... (${state.progress}%)",
+                                text = "جاري معالجة الصوت وخفض الموسيقى... (${state.progress}%)",
                                 fontWeight = FontWeight.Bold,
                                 color = TikTokPink
                             )
@@ -233,7 +242,7 @@ fun ProcessorScreen(
                                 color = TikTokPink
                             )
                             Text(
-                                text = "الفيديو الأصلي لن يتأثر نهائياً، سيتم فقط تصفية المسار الصوتي.",
+                                text = "سيتم نسخ مسار الفيديو كما هو وتعديل مسار الصوت فقط.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -264,7 +273,7 @@ fun ProcessorScreen(
                                         fontSize = 16.sp
                                     )
                                     Text(
-                                        text = "تم حجب الأغاني والموسيقى بنسبة ${(musicBlockLevel * 100).toInt()}% مع الحفاظ على الأصوات بوضوح تام.",
+                                        text = "تم خفض الموسيقى وتحسين وضوح الكلام بنسبة إعداد ${(musicBlockLevel * 100).toInt()}%. الفيديو الأصلي لم يتم تغييره.",
                                         fontSize = 12.sp
                                     )
                                 }
@@ -272,7 +281,14 @@ fun ProcessorScreen(
                         }
 
                         Button(
-                            onClick = { /* Export action */ },
+                            onClick = {
+                                val output = (processingState as? ProcessingState.Success)?.result?.output
+                                if (output != null) {
+                                    saveVideoToGallery(context, output)
+                                } else {
+                                    Toast.makeText(context, "ملف الإخراج غير متاح", Toast.LENGTH_SHORT).show()
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp)
@@ -307,5 +323,41 @@ fun ProcessorScreen(
                 }
             }
         }
+    }
+}
+
+
+private fun saveVideoToGallery(context: Context, source: Uri) {
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+        put(MediaStore.Video.Media.DISPLAY_NAME, "TikTok_cleaned_${System.currentTimeMillis()}.mp4")
+        put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/TikTok Audio Cleaner")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+    }
+    val destination = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+    if (destination == null) {
+        Toast.makeText(context, "تعذر إنشاء ملف في المعرض", Toast.LENGTH_LONG).show()
+        return
+    }
+    try {
+        resolver.openInputStream(source).use { input ->
+            requireNotNull(input) { "تعذر قراءة ملف الإخراج" }
+            resolver.openOutputStream(destination).use { output ->
+                requireNotNull(output) { "تعذر الكتابة إلى المعرض" }
+                input.copyTo(output)
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            resolver.update(destination, ContentValues().apply {
+                put(MediaStore.Video.Media.IS_PENDING, 0)
+            }, null, null)
+        }
+        Toast.makeText(context, "تم حفظ الفيديو في المعرض", Toast.LENGTH_LONG).show()
+    } catch (error: Exception) {
+        resolver.delete(destination, null, null)
+        Toast.makeText(context, error.message ?: "فشل حفظ الفيديو", Toast.LENGTH_LONG).show()
     }
 }

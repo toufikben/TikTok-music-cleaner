@@ -125,7 +125,7 @@ class AudioCleanerViewModel(
                 ) { progress ->
                     _processingState.value = ProcessingState.Processing(progress.coerceIn(0, 100))
                 }
-                if (result.usedModel) {
+                if (result.completed && result.output != null) {
                     _processingState.value = ProcessingState.Success(result)
                     val processed = currentVideo.copy(isProcessed = true, musicBlockLevel = _musicBlockLevel.value)
                     _historyList.update { list ->
@@ -133,7 +133,7 @@ class AudioCleanerViewModel(
                     }
                 } else {
                     _processingState.value = ProcessingState.Error(
-                        result.message ?: "تعذر فصل الموسيقى"
+                        result.message ?: "تعذر إنشاء ملف الفيديو المنقى"
                     )
                 }
             } catch (error: Throwable) {

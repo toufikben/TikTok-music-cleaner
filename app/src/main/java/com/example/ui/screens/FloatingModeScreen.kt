@@ -71,6 +71,7 @@ fun FloatingModeScreen(
                     .setAction(FloatingOverlayService.ACTION_START)
                     .putExtra(FloatingOverlayService.EXTRA_PROJECTION_RESULT, result.resultCode)
                     .putExtra(FloatingOverlayService.EXTRA_PROJECTION_DATA, result.data)
+                    .putExtra(FloatingOverlayService.EXTRA_MUSIC_BLOCK_LEVEL, filterIntensity)
             )
             isFloatingActive = true
         }

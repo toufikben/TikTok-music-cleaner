@@ -24,6 +24,8 @@ import android.widget.ImageButton
 import android.widget.Toast
 import com.example.MainActivity
 import com.example.R
+import com.example.audio.LiveLatencyMeter
+import com.example.audio.RealtimeSpeechEnhancer
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -39,6 +41,8 @@ class FloatingOverlayService : Service() {
     private var audioTrack: AudioTrack? = null
     private var captureThread: Thread? = null
     private val captureRunning = AtomicBoolean(false)
+    private var enhancer: RealtimeSpeechEnhancer? = null
+    private var latencyMeter: LiveLatencyMeter? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -53,10 +57,11 @@ class FloatingOverlayService : Service() {
 
         val projectionData = intent?.getParcelableExtraCompat<Intent>(EXTRA_PROJECTION_DATA)
         val projectionResult = intent?.getIntExtra(EXTRA_PROJECTION_RESULT, 0) ?: 0
+        val musicBlockLevel = intent?.getFloatExtra(EXTRA_MUSIC_BLOCK_LEVEL, 0.9f) ?: 0.9f
         try {
             startAsForegroundService(projectionData != null)
             if (projectionData != null && projectionResult != 0) {
-                startPlaybackCapture(projectionResult, projectionData)
+                startPlaybackCapture(projectionResult, projectionData, musicBlockLevel)
             }
         } catch (error: Exception) {
             Toast.makeText(this, "تعذر تشغيل التنظيف المباشر: ${error.localizedMessage}", Toast.LENGTH_LONG).show()
@@ -108,7 +113,7 @@ class FloatingOverlayService : Service() {
         }
     }
 
-    private fun startPlaybackCapture(resultCode: Int, data: Intent) {
+    private fun startPlaybackCapture(resultCode: Int, data: Intent, musicBlockLevel: Float) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             Toast.makeText(this, "التنظيف المباشر يحتاج Android 10 أو أحدث", Toast.LENGTH_LONG).show()
             return
@@ -124,12 +129,12 @@ class FloatingOverlayService : Service() {
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .build()
         val minBuffer = AudioRecord.getMinBufferSize(sampleRate, channelMask, encoding)
-        val bufferSize = (minBuffer * 2).coerceAtLeast(sampleRate / 10 * 4)
+        val bufferSize = (minBuffer * 2).coerceAtLeast(sampleRate / 50 * 4)
         val outputBufferSize = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_STEREO,
             encoding,
-        ).coerceAtLeast(sampleRate / 10 * 4)
+        ).coerceAtLeast(sampleRate / 50 * 4)
         audioRecord = AudioRecord.Builder()
             .setAudioFormat(
                 AudioFormat.Builder()
@@ -160,6 +165,8 @@ class FloatingOverlayService : Service() {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         val track = audioTrack ?: error("تعذر إنشاء مخرج الصوت المباشر")
+        enhancer = RealtimeSpeechEnhancer(sampleRate, musicBlockLevel)
+        latencyMeter = LiveLatencyMeter(sampleRate)
         captureRunning.set(true)
         record.startRecording()
         track.play()
@@ -168,9 +175,15 @@ class FloatingOverlayService : Service() {
             while (captureRunning.get()) {
                 val read = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
                 if (read < 0) break
-                // Phase 1 is a passthrough latency probe. Phase 2 replaces this
-                // write with the real-time speech/music separation engine.
-                track.write(buffer, 0, read, AudioTrack.WRITE_BLOCKING)
+                val stats = enhancer?.processInterleavedStereo(buffer, read)
+                if (stats != null) {
+                    latencyMeter?.record(stats)
+                    // Never queue work faster than real time: dropping a frame is
+                    // preferable to allowing latency to grow beyond the budget.
+                    if (stats.processingMicros <= MAX_PROCESSING_MICROS) {
+                        track.write(buffer, 0, read, AudioTrack.WRITE_BLOCKING)
+                    }
+                }
                 lastCapturedFrames += read
             }
         }.also { it.name = "TikTokAudioCapture"; it.start() }
@@ -186,6 +199,8 @@ class FloatingOverlayService : Service() {
         runCatching { audioTrack?.stop() }
         audioTrack?.release()
         audioTrack = null
+        enhancer = null
+        latencyMeter = null
         mediaProjection?.stop()
         mediaProjection = null
     }
@@ -234,6 +249,8 @@ class FloatingOverlayService : Service() {
         const val ACTION_STOP = "com.example.action.STOP_FLOATING"
         const val EXTRA_PROJECTION_RESULT = "extra_projection_result"
         const val EXTRA_PROJECTION_DATA = "extra_projection_data"
+        const val EXTRA_MUSIC_BLOCK_LEVEL = "extra_music_block_level"
+        const val MAX_PROCESSING_MICROS = 20_000L
         @Volatile var lastCapturedFrames: Long = 0
     }
 }

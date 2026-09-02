@@ -19,9 +19,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.ui.theme.TikTokCyan
 import com.example.ui.theme.TikTokPink
 import com.example.viewmodel.AudioCleanerViewModel
+import com.example.service.FloatingOverlayService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,7 +107,7 @@ fun FloatingModeScreen(
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "1. افتح تطبيق تيك توك الرسمي على هاتفك.\n2. ستظهر أداة تحكم عائمة شفافة وخفيفة على الشاشة.\n3. يقوم التطبيق تلقائياً في الخلفية بخفض وكتم ترددات الموسيقى والأغاني صاخبة الحجم في كل فيديو أثناء تمريرك، مع الحفاظ الكامل على الحوار والأصوات البشرية.\n4. الفيديو الأصلي لا يتأثر نهائياً ولا يتم تعديل ملفه، فقط يتم تصفية الصوت المباشر المتزامن.",
+                        text = "1. امنح إذن العرض فوق التطبيقات.\n2. شغّل زر العائم ليظهر اختصار تنظيف الصوت فوق التطبيقات.\n3. اضغط الزر العائم للعودة إلى التطبيق واختيار فيديو محفوظ أو مستورد لمعالجته.\n4. تُنشأ نسخة جديدة من الفيديو عند نجاح النموذج، ويبقى الملف الأصلي دون تعديل. لا يمكن للتطبيق اعتراض صوت TikTok تلقائياً في الخلفية دون دعم من النظام أو من التطبيق المصدر.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
@@ -179,7 +181,10 @@ fun FloatingModeScreen(
                         }
                         Slider(
                             value = filterIntensity,
-                            onValueChange = { filterIntensity = it },
+                            onValueChange = {
+                                filterIntensity = it
+                                viewModel.setMusicBlockLevel(it)
+                            },
                             valueRange = 0f..1f
                         )
                     }
@@ -197,7 +202,10 @@ fun FloatingModeScreen(
                         }
                         Switch(
                             checked = vocalBoost,
-                            onCheckedChange = { vocalBoost = it }
+                            onCheckedChange = {
+                                vocalBoost = it
+                                viewModel.setVocalBoost(it)
+                            }
                         )
                     }
                 }
@@ -207,6 +215,14 @@ fun FloatingModeScreen(
             Button(
                 onClick = {
                     if (hasOverlayPermission) {
+                        if (isFloatingActive) {
+                            context.stopService(Intent(context, FloatingOverlayService::class.java))
+                        } else {
+                            ContextCompat.startForegroundService(
+                                context,
+                                Intent(context, FloatingOverlayService::class.java).setAction(FloatingOverlayService.ACTION_START),
+                            )
+                        }
                         isFloatingActive = !isFloatingActive
                     } else {
                         val intent = Intent(
@@ -230,7 +246,7 @@ fun FloatingModeScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isFloatingActive) "إيقاف المراقبة العائمة في الخلفية" else "تشغيل المراقبة العائمة فوق تيك توك الرسمي",
+                    text = if (isFloatingActive) "إيقاف زر التنظيف العائم" else "تشغيل زر التنظيف العائم",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -254,12 +270,12 @@ fun FloatingModeScreen(
                         )
                         Column {
                             Text(
-                                text = "المراقبة العائمة نشطة الآن!",
+                                text = "زر التنظيف العائم نشط الآن",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = "يمكنك الآن فتح تطبيق تيك توك الرسمي وتصفحه كالمعتاد. سيتم حجب الأغاني تلقائياً في الخلفية.",
+                                text = "سيظهر اختصار فوق التطبيقات. اضغطه لاختيار فيديو ومعالجته داخل التطبيق؛ لا يتم تعديل الفيديو الأصلي.",
                                 fontSize = 12.sp
                             )
                         }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">TikTok Audio Cleaner</string>
+    <string name="floating_button_description">فتح معالج تنظيف صوت TikTok</string>
 </resources>

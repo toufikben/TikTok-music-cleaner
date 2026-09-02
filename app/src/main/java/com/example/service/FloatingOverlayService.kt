@@ -23,8 +23,15 @@ class FloatingOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startAsForegroundService()
+        try {
+            startAsForegroundService()
+        } catch (error: Exception) {
+            Toast.makeText(this, "تعذر تشغيل الزر العائم: ${error.localizedMessage}", Toast.LENGTH_LONG).show()
+            stopSelf()
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "اسمح بالعرض فوق التطبيقات أولاً", Toast.LENGTH_LONG).show()
             stopSelf()
             return
         }
@@ -59,7 +66,13 @@ class FloatingOverlayService : Service() {
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             x = sixteenDp()
         }
-        windowManager?.addView(button, params)
+        try {
+            windowManager?.addView(button, params)
+        } catch (error: Exception) {
+            overlayView = null
+            Toast.makeText(this, "تعذر إظهار الزر العائم: ${error.localizedMessage}", Toast.LENGTH_LONG).show()
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

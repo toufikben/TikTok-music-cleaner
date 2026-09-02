@@ -144,6 +144,11 @@ class AudioCleanerViewModel(
         }
     }
 
+    private fun cancelProcessing() {
+        processingJob?.cancel()
+        processingJob = null
+    }
+
     fun resetProcessing() {
         processingJob?.cancel()
         processingJob = null

@@ -3,7 +3,11 @@ package com.example.viewmodel
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.audio.AudioProcessor
+import com.example.audio.ModelUnavailableAudioProcessor
+import com.example.audio.ProcessingResult
 import com.example.model.VideoItem
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,13 +15,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 sealed class ProcessingState {
-    object Idle : ProcessingState()
+    data object Idle : ProcessingState()
     data class Processing(val progress: Int) : ProcessingState()
-    object Success : ProcessingState()
+    data class Success(val result: ProcessingResult) : ProcessingState()
     data class Error(val message: String) : ProcessingState()
 }
 
-class AudioCleanerViewModel : ViewModel() {
+class AudioCleanerViewModel(
+    private val audioProcessor: AudioProcessor = ModelUnavailableAudioProcessor(),
+) : ViewModel() {
+
+    private var processingJob: Job? = null
 
     private val _selectedVideo = MutableStateFlow<VideoItem?>(null)
     val selectedVideo: StateFlow<VideoItem?> = _selectedVideo.asStateFlow()
@@ -69,11 +77,13 @@ class AudioCleanerViewModel : ViewModel() {
 
     fun selectVideo(video: VideoItem) {
         _selectedVideo.value = video
-        _selectedUri.value = null
+        cancelProcessing()
+        _selectedUri.value = Uri.parse(video.videoUrl)
         _processingState.value = ProcessingState.Idle
     }
 
     fun selectUri(uri: Uri) {
+        cancelProcessing()
         _selectedUri.value = uri
         _selectedVideo.value = VideoItem(
             id = "custom_${System.currentTimeMillis()}",
@@ -87,7 +97,7 @@ class AudioCleanerViewModel : ViewModel() {
     }
 
     fun setMusicBlockLevel(level: Float) {
-        _musicBlockLevel.value = level
+        _musicBlockLevel.value = level.coerceIn(0f, 1f)
     }
 
     fun setVocalBoost(enabled: Boolean) {
@@ -99,24 +109,49 @@ class AudioCleanerViewModel : ViewModel() {
     }
 
     fun startProcessing() {
-        val currentVideo = _selectedVideo.value ?: return
-        viewModelScope.launch {
-            _processingState.value = ProcessingState.Processing(0)
-            for (i in 1..10) {
-                kotlinx.coroutines.delay(200)
-                _processingState.value = ProcessingState.Processing(i * 10)
-            }
-            _processingState.value = ProcessingState.Success
-            
-            // Add to history
-            val processed = currentVideo.copy(isProcessed = true, musicBlockLevel = _musicBlockLevel.value)
-            if (!_historyList.value.any { it.id == processed.id }) {
-                _historyList.update { listOf(processed) + it }
+        val currentVideo = _selectedVideo.value ?: run {
+            _processingState.value = ProcessingState.Error("اختر فيديو أولاً")
+            return
+        }
+        val input = _selectedUri.value ?: Uri.parse(currentVideo.videoUrl)
+        processingJob?.cancel()
+        processingJob = viewModelScope.launch {
+            try {
+                val result = audioProcessor.process(
+                    input = input,
+                    musicBlockLevel = _musicBlockLevel.value,
+                    vocalBoost = _vocalBoostEnabled.value,
+                    noiseReduction = _noiseReductionEnabled.value,
+                ) { progress ->
+                    _processingState.value = ProcessingState.Processing(progress.coerceIn(0, 100))
+                }
+                if (result.usedModel) {
+                    _processingState.value = ProcessingState.Success(result)
+                    val processed = currentVideo.copy(isProcessed = true, musicBlockLevel = _musicBlockLevel.value)
+                    _historyList.update { list ->
+                        list.filterNot { it.id == processed.id }.let { listOf(processed) + it }
+                    }
+                } else {
+                    _processingState.value = ProcessingState.Error(
+                        result.message ?: "تعذر فصل الموسيقى"
+                    )
+                }
+            } catch (error: Throwable) {
+                _processingState.value = ProcessingState.Error(
+                    error.message ?: "حدث خطأ أثناء معالجة الصوت"
+                )
             }
         }
     }
 
     fun resetProcessing() {
+        processingJob?.cancel()
+        processingJob = null
         _processingState.value = ProcessingState.Idle
+    }
+
+    override fun onCleared() {
+        processingJob?.cancel()
+        super.onCleared()
     }
 }

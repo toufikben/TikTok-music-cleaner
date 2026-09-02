@@ -131,7 +131,6 @@ class FloatingOverlayService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
-                .setWillPauseWhenDucked(true)
                 .build()
             audioFocusRequest = request
             audioManager?.requestAudioFocus(request) ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED

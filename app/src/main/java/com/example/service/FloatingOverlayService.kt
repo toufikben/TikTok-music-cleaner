@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
@@ -39,6 +40,8 @@ class FloatingOverlayService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: android.media.AudioFocusRequest? = null
     private var captureThread: Thread? = null
     private val captureRunning = AtomicBoolean(false)
     private var enhancer: RealtimeSpeechEnhancer? = null
@@ -119,6 +122,27 @@ class FloatingOverlayService : Service() {
             return
         }
         stopPlaybackCapture()
+        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        val focusResult = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setWillPauseWhenDucked(true)
+                .build()
+            audioFocusRequest = request
+            audioManager?.requestAudioFocus(request) ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                ?: AudioManager.AUDIOFOCUS_REQUEST_FAILED
+        }
+        if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            error("تعذر حجز مخرج الصوت لمنع الصدى")
+        }
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
         mediaProjection = manager.getMediaProjection(resultCode, data)
         val projection = mediaProjection ?: error("لم يتم منح إذن التقاط الصوت")
@@ -199,6 +223,14 @@ class FloatingOverlayService : Service() {
         runCatching { audioTrack?.stop() }
         audioTrack?.release()
         audioTrack = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.abandonAudioFocus(null)
+        }
+        audioFocusRequest = null
+        audioManager = null
         enhancer = null
         latencyMeter = null
         mediaProjection?.stop()

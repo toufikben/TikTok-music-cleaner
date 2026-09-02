@@ -52,6 +52,15 @@ android {
     compose = true
     buildConfig = true
   }
+  // FFmpeg ships native libraries; device-specific APKs avoid bundling all ABIs.
+  splits {
+    abi {
+      isEnable = true
+      reset()
+      include("arm64-v8a", "armeabi-v7a")
+      isUniversalApk = false
+    }
+  }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
     includeInApk = false

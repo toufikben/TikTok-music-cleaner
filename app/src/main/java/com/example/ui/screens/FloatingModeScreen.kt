@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
+import android.Manifest
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -12,6 +16,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,12 +44,46 @@ fun FloatingModeScreen(
     var isFloatingActive by remember { mutableStateOf(false) }
     var filterIntensity by remember { mutableStateOf(0.9f) }
     var vocalBoost by remember { mutableStateOf(true) }
-
-    val hasOverlayPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-        Settings.canDrawOverlays(context)
-    } else {
-        true
+    var hasOverlayPermission by remember {
+        mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true)
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Settings.canDrawOverlays(context)
+                } else true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val projectionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, FloatingOverlayService::class.java)
+                    .setAction(FloatingOverlayService.ACTION_START)
+                    .putExtra(FloatingOverlayService.EXTRA_PROJECTION_RESULT, result.resultCode)
+                    .putExtra(FloatingOverlayService.EXTRA_PROJECTION_DATA, result.data)
+            )
+            isFloatingActive = true
+        }
+    }
+
+    fun launchProjection() {
+        val manager = context.getSystemService(MediaProjectionManager::class.java)
+        projectionLauncher.launch(manager.createScreenCaptureIntent())
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) launchProjection() }
 
     Scaffold(
         topBar = {
@@ -106,8 +149,8 @@ fun FloatingModeScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
-                    Text(
-                        text = "1. امنح إذن العرض فوق التطبيقات.\n2. شغّل زر العائم ليظهر اختصار تنظيف الصوت فوق التطبيقات.\n3. اضغط الزر العائم للعودة إلى التطبيق واختيار فيديو محفوظ أو مستورد لمعالجته.\n4. تُنشأ نسخة جديدة من الفيديو عند نجاح النموذج، ويبقى الملف الأصلي دون تعديل. لا يمكن للتطبيق اعتراض صوت TikTok تلقائياً في الخلفية دون دعم من النظام أو من التطبيق المصدر.",
+                            Text(
+                                text = "1. امنح إذن العرض فوق التطبيقات.\n2. امنح إذن الميكروفون وموافقة Android على التقاط صوت التطبيقات.\n3. شغّل الالتقاط ثم افتح TikTok.\n4. المرحلة الحالية تتحقق من التقاط صوت TikTok بزمن منخفض؛ سيُستبدل مسار القياس لاحقاً بمحرك فصل الكلام عن الموسيقى. قد يمنع TikTok أو الجهاز الالتقاط.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
@@ -215,16 +258,23 @@ fun FloatingModeScreen(
             Button(
                 onClick = {
                     if (hasOverlayPermission) {
-                        if (isFloatingActive) {
-                            context.stopService(Intent(context, FloatingOverlayService::class.java))
+                            if (isFloatingActive) {
+                                context.stopService(Intent(context, FloatingOverlayService::class.java))
+                                isFloatingActive = false
+                            } else {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                                    hasOverlayPermission = false
+                                    return@Button
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    launchProjection()
+                                }
+                            }
                         } else {
-                            ContextCompat.startForegroundService(
-                                context,
-                                Intent(context, FloatingOverlayService::class.java).setAction(FloatingOverlayService.ACTION_START),
-                            )
-                        }
-                        isFloatingActive = !isFloatingActive
-                    } else {
                         val intent = Intent(
                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse("package:${context.packageName}")
@@ -246,7 +296,7 @@ fun FloatingModeScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isFloatingActive) "إيقاف زر التنظيف العائم" else "تشغيل زر التنظيف العائم",
+                        text = if (isFloatingActive) "إيقاف التنظيف المباشر" else "بدء تنظيف صوت TikTok مباشرة",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -270,12 +320,12 @@ fun FloatingModeScreen(
                         )
                         Column {
                             Text(
-                                text = "زر التنظيف العائم نشط الآن",
+                                text = "التقاط صوت TikTok نشط الآن",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )
                             Text(
-                                text = "سيظهر اختصار فوق التطبيقات. اضغطه لاختيار فيديو ومعالجته داخل التطبيق؛ لا يتم تعديل الفيديو الأصلي.",
+                                text = "افتح TikTok الآن. هذه المرحلة تقيس الالتقاط بزمن منخفض؛ لا يتم تعديل صوت TikTok الأصلي بعد، لأن Android لا يسمح باستبداله مباشرة.",
                                 fontSize = 12.sp
                             )
                         }
